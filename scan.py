@@ -7,7 +7,12 @@ import requests, websockets
 
 TOKEN = os.environ["TELEGRAM_TOKEN"]
 CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
-WS_URL = f"wss://ws.derivws.com/websockets/v3?app_id={os.environ.get('DERIV_APP_ID','1089')}"
+APP_ID = os.environ.get("DERIV_APP_ID", "1089")
+ENDPOINTS = [
+    f"wss://ws.derivws.com/websockets/v3?app_id={APP_ID}",
+    f"wss://ws.binaryws.com/websockets/v3?app_id={APP_ID}",
+]
+HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36"}
 LOWER = {"M1": 60, "M5": 300, "M15": 900}
 HIGHER = {"H1": 3600, "H4": 14400, "D1": 86400}
 
@@ -28,9 +33,23 @@ def direction(c):
 async def call(ws, p):
     await ws.send(json.dumps(p)); return json.loads(await ws.recv())
 
+async def connect():
+    last = None
+    for attempt in range(3):
+        for url in ENDPOINTS:
+            try:
+                return await websockets.connect(url, origin="https://api.deriv.com",
+                                                extra_headers=HEADERS, open_timeout=20)
+            except Exception as ex:
+                last = ex
+                print("connect failed", url, ex)
+        await asyncio.sleep(5)
+    raise last
+
 async def scan():
     res = []
-    async with websockets.connect(WS_URL) as ws:
+    ws = await connect()
+    async with ws:
         r = await call(ws, {"active_symbols": "brief", "product_type": "basic"})
         syms = [s["symbol"] for s in r.get("active_symbols", [])
                 if s.get("market") == "synthetic_index" and not s.get("is_trading_suspended")]
